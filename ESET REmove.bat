@@ -1,0 +1,1 @@
+wmic product where name="ESET Endpoint Antivirus" call uninstall /nointeractive

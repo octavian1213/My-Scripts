@@ -1,0 +1,263 @@
+<#
+Usage: Get-Java.ps1 -f <AD filter> -e <If -e is present, email will be sent with the report as attachment>
+#>
+[CmdletBinding()]
+	param (
+		[Parameter(Mandatory=$true, HelpMessage="Specify the Get-ADComputer filter to apply (Use * for wildcard")]
+		[Alias("f")]
+		[string] $Filter,
+		
+		[Parameter(Mandatory=$false)]
+		[Alias("e")]
+		[switch] $email
+	)
+$Rev =  "v1.0 21 Jan 2014"
+#$ErrorActionPreference="continue"
+cls
+Write-Host "********************************************" 	-Fore Green
+Write-Host "Get-Java.ps1: Retrieves Java information" -Fore Green
+Write-Host "Written By: Tyler Applebaum" -Fore Green
+Write-Host "$Rev" -Fore Green
+Write-Host "********************************************" 	-Fore Green
+Write-Host " "
+Write-Host " "
+
+
+If ( ! (Get-module ActiveDirectory )) {
+Import-Module ActiveDirectory
+} #include AD module
+
+#Company name
+$Company = "Company Name"
+
+#Email Properties
+$date = get-date
+$recipients = "IT Dept. <itdept@company.com>", "User Two <Usertwo@company.com>"
+$from = "IT Dept. <itdept@company.com>"
+$emailserver = "exchange.company.com"
+$body = "Java Version Report $date"
+$subject = "Java Version Report"
+	
+#Path to the report
+$reportPath = "C:\";
+
+#Report name
+$reportName = "Java_Report$(get-date -format ddMMyyyy).html";
+
+#Colors
+$whiteColor = "#FFFFFF"
+$redColor = "#FF4500"
+$yellowColor = "#CCCC00"	
+
+# Path and Report name together (for emailing purposes)
+$JavaReport = $reportPath + $reportName
+	
+# Remove the report if it has already been run today so it does not append to the existing report
+If (Test-Path $JavaReport){
+	Remove-Item $JavaReport
+}
+
+#Gather a list of all computers in AD
+$list = Get-ADComputer -Filter {Name -Like $Filter} | select -ExpandProperty Name
+
+#Format the list
+$computers = $list | where {$_ -notlike $null } | foreach { $_.trim() }
+
+# Create and write HTML Header of report
+$titleDate = get-date -uformat "%m-%d-%Y - %A"
+$header = "
+		<html>
+		<head>
+		<meta http-equiv='Content-Type' content='text/html; charset=iso-8859-1'>
+		<title>Java Report</title>
+		<STYLE TYPE='text/css'>
+		<!--
+		td {
+			font-family: Tahoma;
+			font-size: 12px;
+			border-top: 1px solid #999999;
+			border-right: 1px solid #999999;
+			border-bottom: 1px solid #999999;
+			border-left: 1px solid #999999;
+			padding-top: 0px;
+			padding-right: 0px;
+			padding-bottom: 0px;
+			padding-left: 0px;
+		}
+		body {
+			margin-left: 5px;
+			margin-top: 5px;
+			margin-right: 0px;
+			margin-bottom: 10px;
+			table {
+			border: thin solid #000000;
+		}
+		-->
+		</style>
+		</head>
+		<body>
+		<table width='1000'>
+		<tr bgcolor='#CCCCCC'>
+		<td colspan='7' height='25' align='center'>
+		<font face='tahoma' color='#003399' size='4'><strong>$Company Java Version Report for $titledate</strong></font>
+		</td>
+		</tr>
+		</table>
+"
+Add-Content $JavaReport $header
+
+# Create and write Table header for report
+ $tableHeader = "
+ <table width='1000'><tbody>
+	<tr bgcolor=#CCCCCC>
+    <td width='125' align='center'>Computer</td>
+	<td width='65' align='center'>Platform</td>
+	<td width='225' align='center'>Java 7 x86</td>
+	<td width='225' align='center'>Java 7 x64</td>
+	<td width='225' align='center'>Java 6 x86</td>
+	<td width='225' align='center'>Java 6 x64</td>
+	</tr>
+"
+Add-Content $JavaReport $tableHeader
+
+#Determine x86 or x64 platform
+Function script:Bitness {
+	If (Test-Path "\\$WS\C$\Program Files (x86)"){
+		$script:OSVer = "64-bit"
+	}	
+	Else {
+		$script:OSVer = "32-bit"
+	}
+}
+
+#Detect Java 6 and 7. Detects multiple installations of different versions and platforms. Not tested with static installations. :(
+Function script:JavaDetect {
+	If ($OSVer = "64-bit"){
+		$java732 = "\\$WS\C$\Program Files (x86)\Java\jre7\bin\java.exe"
+		$java764 = "\\$WS\C$\Program Files\Java\jre7\bin\java.exe"
+		$java632 = "\\$WS\C$\Program Files (x86)\Java\jre6\bin\java.exe"
+		$java664 = "\\$WS\C$\Program Files\Java\jre6\bin\java.exe"
+			If (Test-Path $java732){
+				$script:javaver732 = gci $java732 | Select -exp versioninfo | Select ProductName
+				$script:javaver732 = $script:javaver732.ProductName
+			}
+			Else {
+				$script:javaver732 = "Java 7 32-bit not found"
+			}	
+			If (Test-Path $java764){
+				$script:javaver764 = gci $java764 | Select -exp versioninfo | Select ProductName
+				$script:javaver764 = $script:javaver764.ProductName
+			}
+			Else {
+				$script:javaver764 = "Java 7 64-bit not found"
+			}
+			If (Test-Path $java632){
+				$script:javaver632 = gci $java632 | Select -exp versioninfo | Select ProductName
+				$script:javaver632 = $script:javaver632.ProductName
+			}
+			Else {
+				$script:javaver632 = "Java 6 32-bit not found"
+			}
+			If (Test-Path $java664){
+				$script:javaver664 = gci $java664 | Select -exp versioninfo | Select ProductName
+				$script:javaver664 = $script:javaver664.ProductName
+			}
+			Else {
+				$script:javaver664 = "Java 6 64-bit not found"
+			}
+					
+	}
+
+	Else {
+		$java732 = "\\$WS\C$\Program Files\Java\jre7\bin\java.exe"
+		$java632 = "\\$WS\C$\Program Files\Java\jre6\bin\java.exe"
+			If (Test-Path $java732){
+				$script:javaver732 = gci $java732 | Select -exp versioninfo | Select ProductName
+				$script:javaver732 = $script:javaver732.ProductName
+			}
+			Else {
+				$script:javaver732 = "Java 7 32-bit not found"
+			}
+			If (Test-Path $java632){
+				$script:javaver632 = gci $java632 | Select -exp versioninfo | Select ProductName
+				$script:javaver632 = $script:javaver632.ProductName
+			}
+			Else {
+				$script:javaver632 = "Java 6 32-bit not found"
+			}
+	}
+}
+
+#Start doin work
+Foreach ($WS in $computers){
+	If (Test-Connection -count 1 -computer $WS -quiet) {
+		Bitness
+		JavaDetect
+		Write-Host $WS.ToUpper()
+		Write-Host $JavaVer732
+		Write-Host $JavaVer764
+		Write-Host $JavaVer632
+		Write-Host $JavaVer664
+		Write-Host `n
+		
+		$Color = $WhiteColor
+		If ($JavaVer732 -notlike "*not found*"){
+		$color1 = $yellowColor
+		}
+		If ($JavaVer764 -notlike "*not found*"){
+		$color2 = $yellowColor
+		}
+		If ($JavaVer632 -notlike "*not found*"){
+		$color3 = $redColor
+		}
+		If ($JavaVer664 -notlike "*not found*"){
+		$color4 = $redColor
+		}
+
+#Create table data rows 
+    $dataRow = "
+		<tr>
+        <td width='125' align='center'>$WS</td>
+		<td width='65' align='center'>$OSVer</td>
+		<td width='225' bgcolor=`'$color1`'>$JavaVer732</td>
+		<td width='225' bgcolor=`'$color2`'>$JavaVer764</td>
+		<td width='225' bgcolor=`'$color3`'>$JavaVer632</td>
+		<td width='225' bgcolor=`'$color4`'>$JavaVer664</td>
+		</tr>
+	"
+Add-Content $JavaReport $dataRow;
+
+#reset colors
+	sv color1 $whiteColor
+	sv color2 $whiteColor
+	sv color3 $whiteColor
+	sv color4 $whiteColor
+
+	}#endif test-connection
+	
+	Else {
+		Write-Host "Unable to connect to $WS. Please check the name and try again." -back Black -fore Yellow
+	}#endelse test-connection
+}#end foreach
+
+#Add closing HTML tags
+Add-Content $JavaReport $tableDescription
+Add-Content $JavaReport "</body></html>"
+
+If (Test-Path $JavaReport){
+	Write-Host "Report created successfully!"
+	ii $JavaReport
+}
+
+$script:MailMessage = @{
+To = $recipients
+From = $from 
+Subject = $Subject 
+Body = $body 
+Attachments = $JavaReport
+Smtpserver = $emailserver 
+}
+
+If ($email) {
+Send-MailMessage @MailMessage
+}
